@@ -44,9 +44,10 @@ func (subMap *subscriptionMap) Add(uri string, id ConnectionID){
 	idMap,ok := subMap.data[uri]
 	
 	if !ok{
-		subMap.data[uri] = map[ConnectionID]bool{ 
-								id:true,
-							}
+		//Create new map
+		newMap := make(map[ConnectionID]bool)
+		newMap[id] = true
+		subMap.data[uri] = newMap
 		
 	}else{
 		idMap[id] = true
@@ -63,8 +64,8 @@ func (subMap *subscriptionMap) Remove(uri string, id ConnectionID){
 
 func newSubscriptionMap()(*subscriptionMap){
 	s := new(subscriptionMap)
-	s.data = make(map[string] (map[ConnectionID]bool) )
 	s.lock = new(sync.RWMutex)
+	s.data = make(map[string] (map[ConnectionID]bool) )
 	return s
 }
 
@@ -80,7 +81,7 @@ type Server struct{
 	
 	//Data storage
 	connections map[ConnectionID] chan string // Channel to send on connection TODO Make safe for concurrent access (RWMutex)
-	subscriptions subscriptionMap // Maps subscription URI to connectionID
+	subscriptions *subscriptionMap // Maps subscription URI to connectionID
 	rpcHooks map[string] RPCHandler
 	
 	//Callback functions (Used for external config)
@@ -93,6 +94,7 @@ func NewServer()*Server{
 		localID: "server", // TODO: Make this something more useful
 		VerifyID: func(conn websocket.Config)(bool){ return true}, //Default always returns true (accepts all connections)
 		connections: make(map[ConnectionID] chan string),
+		subscriptions: newSubscriptionMap(),
 		rpcHooks: make(map[string]RPCHandler),
 	}
 }
@@ -134,6 +136,9 @@ func (t *Server) HandleWebsocket(conn *websocket.Conn) {
 		
 	//Setup message recieving (Blocking for life of connection)
 	t.recieveOnConn(registeredID,conn)
+	
+	//Unregister connection
+	delete(t.connections,registeredID)
 }
 
 // Uses the VerifyId function paramater to determine if this is valid connection (Default does nothing)
@@ -160,7 +165,7 @@ func (t *Server) registerConnection(conn *websocket.Conn)(ConnectionID,chan stri
 	//Create Welcome
 	msg := WelcomeMsg{SessionId:string(id)}
 	
-	arr, jsonErr := json.Marshal(msg)
+	arr, jsonErr := msg.MarshalJSON()
 	if jsonErr != nil {
 		return "",nil,errors.New("error encoding welcome message:"+jsonErr.Error())
 	}
@@ -263,7 +268,7 @@ func (t *Server) handlePublish(id ConnectionID, msg PublishMsg){
 	// TODO allow server intercept
 	
 	//Format json and distribute
-	if jsonEvent, err := json.Marshal(event); err == nil{
+	if jsonEvent, err := event.MarshalJSON(); err == nil{
 		//TODO Pass to other instances
 		
 		//Loop over all connections for subscription
@@ -283,7 +288,7 @@ func (t *Server) handlePublish(id ConnectionID, msg PublishMsg){
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (t *Server) handleCall(id ConnectionID, msg CallMsg){
-	log.Trace("turnpike: handling call message")
+	log.Trace("postmaster: handling call message")
 
 	var out []byte
 
@@ -295,31 +300,31 @@ func (t *Server) handleCall(id ConnectionID, msg CallMsg){
 	
 		if err == nil{
 			//Formulate response
-			callResult := CallResultMsg{
+			callResult := &CallResultMsg{
 				CallID: msg.CallID,
 				Result: res,
 			}
-			out,_ = json.Marshal(callResult)
+			out,_ = callResult.MarshalJSON()
 			
 		} else {
 			//Handle error
-			callError := CallErrorMsg{
+			callError := &CallErrorMsg{
 				CallID: msg.CallID,
 				ErrorURI: err.URI,
 				ErrorDesc: err.Description,
 				ErrorDetails: err.Details,
 			}
-			out,_ = json.Marshal(callError)
+			out,_ = callError.MarshalJSON()
 		}
 	} else {
 		log.Warn("postmaster: RPC call not registered: %s", msg.ProcURI)
-		callError := CallErrorMsg{
+		callError := &CallErrorMsg{
 			CallID: msg.CallID,
 			ErrorURI: "error:notimplemented",
 			ErrorDesc: "RPC call '%s' not implemented",
 			ErrorDetails: msg.ProcURI,
 		}
-		out,_ = json.Marshal(callError)		
+		out,_ = callError.MarshalJSON()		
 	}
 
 	if connection, ok := t.connections[id]; ok {

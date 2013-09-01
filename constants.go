@@ -4,7 +4,7 @@ import(
 	"github.com/jcelliott/lumber"
 )
 var (
-	log lumber.Logger = lumber.NewConsoleLogger(lumber.INFO)
+	log lumber.Logger = lumber.NewConsoleLogger(lumber.TRACE)
 )
 
 const (
