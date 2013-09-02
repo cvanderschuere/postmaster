@@ -16,6 +16,7 @@ import(
 ///////////////////////////////////////////////////////////////////////////////////////
 
 type VerifyFunction func(conn websocket.Config)(bool) // Read-only access
+type PublishIntercept func(id ConnectionID, msg PublishMsg)(bool)
 type ConnectionID string
 
 type RPCHandler func(ConnectionID, string, ...interface{}) (interface{}, *RPCError)
@@ -69,6 +70,11 @@ func newSubscriptionMap()(*subscriptionMap){
 	return s
 }
 
+type Connection struct{
+	out chan string
+	Username string
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //
 //	Server
@@ -80,22 +86,25 @@ type Server struct{
 	localID ConnectionID
 	
 	//Data storage
-	connections map[ConnectionID] chan string // Channel to send on connection TODO Make safe for concurrent access (RWMutex)
+	connections map[ConnectionID] Connection // Channel to send on connection TODO Make safe for concurrent access (RWMutex)
 	subscriptions *subscriptionMap // Maps subscription URI to connectionID
 	rpcHooks map[string] RPCHandler
 	
 	//Callback functions (Used for external config)
 	VerifyID VerifyFunction //Paramater used to filter connections (optional)
+	MessageToPublish PublishIntercept
 
 }
 
 func NewServer()*Server{
 	return &Server{
 		localID: "server", // TODO: Make this something more useful
-		VerifyID: func(conn websocket.Config)(bool){ return true}, //Default always returns true (accepts all connections)
-		connections: make(map[ConnectionID] chan string),
+		connections: make(map[ConnectionID]Connection),
 		subscriptions: newSubscriptionMap(),
 		rpcHooks: make(map[string]RPCHandler),
+		
+		VerifyID: nil, //Optional method to filter connections
+		MessageToPublish: nil, //Optional method to intercept events before published
 	}
 }
 
@@ -145,7 +154,7 @@ func (t *Server) HandleWebsocket(conn *websocket.Conn) {
 func (t *Server) verifyConnection(conn *websocket.Conn)(error){
 
 	//Verify identiy
-	if !t.VerifyID(*conn.Config()){
+	if t.VerifyID != nil && !t.VerifyID(*conn.Config()){
 		return  errors.New("failed verification")// Drop connection
 	}else{
 		return nil
@@ -153,7 +162,7 @@ func (t *Server) verifyConnection(conn *websocket.Conn)(error){
 }
 
 //Returns registered id or error
-func (t *Server) registerConnection(conn *websocket.Conn)(ConnectionID,chan string, error){
+func (t *Server) registerConnection(conn *websocket.Conn)(ConnectionID,chan string, error){	
 	//Create uuid (randomly)
 	tid, err := uuid.NewV4()
 	if err != nil {
@@ -182,8 +191,12 @@ func (t *Server) registerConnection(conn *websocket.Conn)(ConnectionID,chan stri
 	//Make channel to send on
 	sendChan := make(chan string, ALLOWED_BACKLOG)
 	
-	//Register channel with server
-	t.connections[id] = sendChan
+	//Find username for conn TODO make this application specific
+	username := conn.Config().Header.Get("musicbox-username")
+	
+	//Register channel with server	
+	newConn := Connection{out:sendChan,Username:username}
+	t.connections[id] = newConn
 	
 	return  id,sendChan,nil //Sucessfully registered
 }
@@ -265,7 +278,11 @@ func (t *Server) handlePublish(id ConnectionID, msg PublishMsg){
 		Event: msg.Event,
 	}
 	
-	// TODO allow server intercept
+	//Give server option to intercept and/or kill event
+	if t.MessageToPublish != nil && !t.MessageToPublish(id,msg){
+		log.Debug("postmaster: event vetoed by server: %s",msg.Event)
+		return
+	}
 	
 	//Format json and distribute
 	if jsonEvent, err := event.MarshalJSON(); err == nil{
@@ -275,7 +292,10 @@ func (t *Server) handlePublish(id ConnectionID, msg PublishMsg){
 		for _,connID := range subscribers{
 			//Look up connection for this ID
 			if conn,ok := t.connections[connID]; ok && connID != id{
-				conn <- string(jsonEvent)
+				conn.out <- string(jsonEvent)
+			}else if !ok{
+				//Remove subscription of dropped connection
+				t.subscriptions.Remove(msg.TopicURI,connID)
 			}
 		}
 	}else{
@@ -327,8 +347,8 @@ func (t *Server) handleCall(id ConnectionID, msg CallMsg){
 		out,_ = callError.MarshalJSON()		
 	}
 
-	if connection, ok := t.connections[id]; ok {
-		connection <- string(out)
+	if conn, ok := t.connections[id]; ok {
+		conn.out <- string(out)
 	}
 }
 
