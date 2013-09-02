@@ -19,7 +19,7 @@ type VerifyFunction func(conn websocket.Config)(bool) // Read-only access
 type PublishIntercept func(id ConnectionID, msg PublishMsg)(bool)
 type ConnectionID string
 
-type RPCHandler func(ConnectionID, string, ...interface{}) (interface{}, *RPCError)
+type RPCHandler func(ConnectionID,string, string, ...interface{}) (interface{}, *RPCError)
 
 type subscriptionMap struct{
 	data map[string] (map[ConnectionID]bool) //Allows concurrent access
@@ -202,7 +202,7 @@ func (t *Server) registerConnection(conn *websocket.Conn)(ConnectionID,chan stri
 }
 
 //Recieves on channel for life of connection
-func (t *Server) recieveOnConn(id ConnectionID,conn *websocket.Conn){
+func (t *Server) recieveOnConn(id ConnectionID, conn *websocket.Conn){	
 	Connection_Loop:
 	for {
 		//Recieve message
@@ -314,9 +314,10 @@ func (t *Server) handleCall(id ConnectionID, msg CallMsg){
 
 	//Check if function exists
 	if f, ok := t.rpcHooks[msg.ProcURI]; ok && f != nil {
+		username := t.connections[id].Username
 		
 		// Perform function
-		res, err := f(id, msg.ProcURI, msg.CallArgs...)
+		res, err := f(id,username, msg.ProcURI, msg.CallArgs...)
 	
 		if err == nil{
 			//Formulate response
@@ -356,14 +357,16 @@ func (t *Server) handleCall(id ConnectionID, msg CallMsg){
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (t *Server) handleSubscribe(id ConnectionID, msg SubscribeMsg){
-	t.subscriptions.Add(msg.TopicURI,id) //Add to subscriptions
+	username := t.connections[id].Username
+	t.subscriptions.Add(username+":"+msg.TopicURI,id) //Add to subscriptions
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (t *Server) handleUnsubscribe(id ConnectionID, msg UnsubscribeMsg){
-	t.subscriptions.Remove(msg.TopicURI,id) //Remove from subscriptions
+	username := t.connections[id].Username
+	t.subscriptions.Remove(username+":"+msg.TopicURI,id) //Remove from subscriptions
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
