@@ -77,23 +77,12 @@ type ConnectionID string
 
 type Connection struct{
 	out chan string
+	pendingAuth *PendingAuth //Set in between authreq & auth
 	isAuth bool //Has this client been authenticated (only allow authreq/auth rpc call if not)
 	id ConnectionID //Used internally
 	
 	Username string
 	P *Permissions //Permission for this client
-}
-
-type Permissions struct{
-	RPC map[string] RPCPermission //maps uri to RPCPermission
-	PubSub map[string] PubSubPermission //maps uri to PubSubPermission
-}
-
-type RPCPermission bool
-
-type PubSubPermission struct{
-	canPublish bool
-	canSubscribe bool
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -116,10 +105,10 @@ type Server struct{
 	//
 	
 	//Get the authentication secret for an authentication key, i.e. the user password for the user name. Return "" when the authentication key does not exist.
-	GetAuthSecret	func(authKey string)(string) // Required
+	GetAuthSecret	func(authKey string)(string,error) // Required
 	
     //Get the permissions the session is granted when the authentication succeeds for the given key / extra information.
-	GetAuthPermissions func(authKey string,authExtra map[string]interface{})(Permissions) // Required
+	GetAuthPermissions func(authKey string,authExtra map[string]interface{})(Permissions,error) // Required
 	
 	//Fired when client authentication was successful.
 	OnAuthenticated func(authKey string, permission Permissions) // Optional
@@ -201,7 +190,7 @@ func (t *Server) registerConnection(conn *websocket.Conn)(*Connection,error){
 	sendChan := make(chan string, ALLOWED_BACKLOG) //Channel to send to connection
 	
 	//Register channel with server	
-	newConn := &Connection{out:sendChan,id:cid,isAuth:false,Username:"",P:nil} //Un authed user
+	newConn := &Connection{out:sendChan,id:cid,pendingAuth:nil,isAuth:false,Username:"",P:nil} //Un authed user
 	t.connections[cid] = newConn
 	
 	log.Info("client connected: %s", cid)
@@ -287,7 +276,7 @@ func (t *Server) handlePublish(conn *Connection, msg PublishMsg){
 	
 	
 	//Make sure this connection can publish on this uri
-	if r := conn.P.PubSub[msg.TopicURI];r.canPublish == false{
+	if r := conn.P.PubSub[msg.TopicURI];r.CanPublish == false{
 		log.Error("postmaster: Connection tried to publish to incorrect uri")
 		return
 	}
@@ -332,9 +321,47 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 	log.Trace("postmaster: handling call message")
 	
 	//Make sure this is appropriate call (only authreq/auth when isAuth==false)
-	if !conn.isAuth && ((msg.ProcURI != WAMP_PROCEDURE_URL+"authreq") || (msg.ProcURI != WAMP_PROCEDURE_URL+"auth")){
-		log.Error("Tried to make rpc call other than authreq/auth on unauthenticated connection")
-		return
+	if !conn.isAuth {
+		switch msg.ProcURI{
+		case WAMP_PROCEDURE_URL+"authreq":
+			//Get args
+			authKey := msg.CallArgs[0].(string)
+			var authExtra map[string]interface{}
+			if len(msg.CallArgs)>1{
+				authExtra = msg.CallArgs[1].(map[string]interface{})
+			}else{
+				authExtra = nil
+			}
+			
+			res,err := authRequest(t,conn,authKey,authExtra)
+			if err == nil{
+				callResult := &CallResultMsg{
+					CallID: msg.CallID,
+					Result: res,
+				}
+				out,_ := callResult.MarshalJSON()
+				if returnConn, ok := t.connections[conn.id]; ok {
+					returnConn.out <- string(out)
+				}
+			}
+			return
+		case WAMP_PROCEDURE_URL+"auth":
+			res,err := auth(t,conn,msg.CallArgs[0].(string))
+			if err == nil{
+				callResult := &CallResultMsg{
+					CallID: msg.CallID,
+					Result: res,
+				}
+				out,_ := callResult.MarshalJSON()
+				if returnConn, ok := t.connections[conn.id]; ok {
+					returnConn.out <- string(out)
+				}
+			}
+			return
+		default:
+			log.Error("Tried to make rpc call other than authreq/auth on unauthenticated connection")
+			return
+		}
 	}
 
 	var out []byte
@@ -384,7 +411,7 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 
 func (t *Server) handleSubscribe(conn *Connection, msg SubscribeMsg){
 	//Make sure this connection can publish on this uri
-	if r := conn.P.PubSub[msg.TopicURI];r.canSubscribe == false{
+	if r := conn.P.PubSub[msg.TopicURI];r.CanSubscribe == false{
 		log.Error("postmaster: Connection tried to subscrive to incorrect uri")
 		return
 	}
