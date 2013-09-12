@@ -48,7 +48,7 @@ func authRequest(t *Server, conn *Connection, authKey string, authExtra map[stri
 	}else if conn.pendingAuth != nil{
 		return "",errors.New("Authentication request already issues - authentication pending")
 	}
-	
+		
 	//Get authKey TODO: add anynomous auth option
 	var secret string
 	if t.GetAuthSecret != nil{
@@ -99,12 +99,14 @@ func authRequest(t *Server, conn *Connection, authKey string, authExtra map[stri
 	return string(authChallenge),nil
 } 
 //RPC endpoint for clients to actually authenticate after requesting authentication and computing a signature from the authentication challenge.
-func auth(t *Server, conn *Connection, signature string)([]byte,error){
+func auth(t *Server, conn *Connection, signature string)(*Permissions,error){
 	if conn.isAuth{
 	 	return nil,errors.New("Connection already authenticated")
 	}else if conn.pendingAuth == nil{
 		return nil,errors.New("No pending authentication; call authreq first")
 	}
+	
+	log.Info(signature + "::" + conn.pendingAuth.sig)
 	
 	//Check signature
 	if signature != conn.pendingAuth.sig{
@@ -123,7 +125,7 @@ func auth(t *Server, conn *Connection, signature string)([]byte,error){
 	conn.pendingAuth = nil //Clear for safety/memory
 	go t.OnAuthenticated(conn.Username,*conn.P) //Signal to server that new conneciton made
 
-	return json.Marshal(conn.P);
+	return conn.P,nil;
 }
 
 

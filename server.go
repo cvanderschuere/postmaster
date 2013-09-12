@@ -99,6 +99,7 @@ type Server struct{
 	connections map[ConnectionID] *Connection // Channel to send on connection TODO Make safe for concurrent access (RWMutex)
 	subscriptions *subscriptionMap // Maps subscription URI to connectionID
 	rpcHooks map[string] RPCHandler
+	unauthRPCHooks map[string] RPCHandler
 	
 	//
 	//Challenge Response Authentication Callbacks
@@ -124,6 +125,7 @@ func NewServer()*Server{
 		connections: make(map[ConnectionID]*Connection),
 		subscriptions: newSubscriptionMap(),
 		rpcHooks: make(map[string]RPCHandler),
+		unauthRPCHooks: make(map[string]RPCHandler),
 				
 		//Callbacks all nil (Note some are required)
 	}
@@ -320,6 +322,8 @@ func (t *Server) handlePublish(conn *Connection, msg PublishMsg){
 func (t *Server) handleCall(conn *Connection, msg CallMsg){
 	log.Trace("postmaster: handling call message")
 	
+	hookMap := t.rpcHooks
+	
 	//Make sure this is appropriate call (only authreq/auth when isAuth==false)
 	if !conn.isAuth {
 		switch msg.ProcURI{
@@ -327,8 +331,12 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 			//Get args
 			authKey := msg.CallArgs[0].(string)
 			var authExtra map[string]interface{}
-			if len(msg.CallArgs)>1{
-				authExtra = msg.CallArgs[1].(map[string]interface{})
+			var ok bool
+			if len(msg.CallArgs)>1 && msg.CallArgs[1] != nil{
+				authExtra,ok = msg.CallArgs[1].(map[string]interface{})
+				if !ok{
+					authExtra = nil
+				}
 			}else{
 				authExtra = nil
 			}
@@ -359,15 +367,15 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 			}
 			return
 		default:
-			log.Error("Tried to make rpc call other than authreq/auth on unauthenticated connection")
-			return
+			hookMap = t.unauthRPCHooks //Use unauthRPC hooks
+			
 		}
 	}
 
 	var out []byte
 
 	//Check if function exists
-	if f, ok := t.rpcHooks[msg.ProcURI]; ok && f != nil {
+	if f, ok := hookMap[msg.ProcURI]; ok && f != nil {
 		
 		// Perform function
 		res, err := f(conn, msg.ProcURI, msg.CallArgs...)
@@ -443,11 +451,12 @@ func (t *Server) UnregisterRPC(uri string) {
 	delete(t.rpcHooks, uri)
 }
 
-/*
-func (t *Server) SendEvent(topic string, event interface{}) {
-	t.handlePublish(t.localID, PublishMsg{
-		TopicURI: topic,
-		Event:    event,
-	})
+func (t *Server) RegisterUnauthRPC(uri string, f RPCHandler) {
+	if f != nil {
+		t.unauthRPCHooks[uri] = f
+	}
 }
-*/
+
+func (t *Server) UnregisterUnauthRPC(uri string) {
+	delete(t.unauthRPCHooks, uri)
+}
