@@ -12,30 +12,6 @@ import(
 )
 
 //
-// Auth Types
-//
-
-type PendingAuth struct{
-	authKey string
-	sig string
-	p Permissions
-	ch []byte //Challenge in json form
-	
-}
-
-type Permissions struct{
-	RPC map[string] RPCPermission //maps uri to RPCPermission
-	PubSub map[string] PubSubPermission //maps uri to PubSubPermission
-}
-
-type RPCPermission bool
-
-type PubSubPermission struct{
-	CanPublish bool
-	CanSubscribe bool
-}
-
-//
 //Challenge Response Authentication Methods
 //
 
@@ -123,7 +99,10 @@ func auth(t *Server, conn *Connection, signature string)(*Permissions,error){
 	conn.Username = conn.pendingAuth.authKey
 	
 	conn.pendingAuth = nil //Clear for safety/memory
-	go t.OnAuthenticated(conn.Username,*conn.P) //Signal to server that new conneciton made
+	
+	if t.OnAuthenticated != nil{
+		go t.OnAuthenticated(conn.Username,*conn.P) //Signal to server that new conneciton made
+	}
 
 	return conn.P,nil;
 }

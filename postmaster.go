@@ -4,8 +4,6 @@ import(
 	"code.google.com/p/go.net/websocket"
 )
 
-
-
 type Handler interface {
 	HandleWebsocket(*websocket.Conn)
 }

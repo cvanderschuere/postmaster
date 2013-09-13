@@ -13,3 +13,7 @@ const (
 )
 
 const ALLOWED_BACKLOG = 6
+
+//Auth: wamp cra
+const WAMP_BASE_URL = "http://api.wamp.ws/"
+const WAMP_PROCEDURE_URL = WAMP_BASE_URL+"procedure#"
