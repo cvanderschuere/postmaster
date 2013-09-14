@@ -347,15 +347,14 @@ func (t *Server) handleSubscribe(conn *Connection, msg SubscribeMsg){
 		return
 	}
 	
-	username := t.connections[conn.id].Username
-	t.subscriptions.Add(username+":"+msg.TopicURI,conn.id) //Add to subscriptions
+	t.subscriptions.Add(msg.TopicURI,conn.id) //Add to subscriptions
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (t *Server) handleUnsubscribe(conn *Connection, msg UnsubscribeMsg){
-	t.subscriptions.Remove(conn.Username+":"+msg.TopicURI,conn.id) //Remove from subscriptions
+	t.subscriptions.Remove(msg.TopicURI,conn.id) //Remove from subscriptions
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
