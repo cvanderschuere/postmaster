@@ -35,7 +35,7 @@ type Server struct{
 	GetAuthPermissions func(authKey string,authExtra map[string]interface{})(Permissions,error) // Required
 	
 	//Fired when client authentication was successful.
-	OnAuthenticated func(authKey string, permission Permissions) // Optional
+	OnAuthenticated func(authKey string,authExtra map[string]interface{}, permission Permissions) // Optional
 
 	//Message interept
 	MessageToPublish PublishIntercept // Optional

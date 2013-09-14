@@ -32,6 +32,7 @@ type Connection struct{
 
 type PendingAuth struct{
 	authKey string
+	authExtra map[string]interface{}
 	sig string
 	p Permissions
 	ch []byte //Challenge in json form

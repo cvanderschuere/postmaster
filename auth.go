@@ -65,6 +65,7 @@ func authRequest(t *Server, conn *Connection, authKey string, authExtra map[stri
 	
 	pend := &PendingAuth{
 		authKey:authKey,
+		authExtra:authExtra,
 		sig:s,
 		p: perms,
 		ch:authChallenge,
@@ -98,10 +99,8 @@ func auth(t *Server, conn *Connection, signature string)(*Permissions,error){
 	conn.P = &conn.pendingAuth.p //Set permissions
 	conn.Username = conn.pendingAuth.authKey
 	
-	conn.pendingAuth = nil //Clear for safety/memory
-	
 	if t.OnAuthenticated != nil{
-		go t.OnAuthenticated(conn.Username,*conn.P) //Signal to server that new conneciton made
+		go t.OnAuthenticated(conn.Username, conn.pendingAuth.authExtra, *conn.P) //Signal to server that new conneciton made
 	}
 
 	return conn.P,nil;
