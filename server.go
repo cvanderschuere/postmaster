@@ -39,6 +39,9 @@ type Server struct{
 
 	//Message interept
 	MessageToPublish PublishIntercept // Optional
+	
+	//Fired when authenticated client disconnections
+	OnDisconnect func(authKey string,authExtra map[string]interface{}) //Optional
 
 }
 
@@ -81,6 +84,11 @@ func (t *Server) HandleWebsocket(conn *websocket.Conn) {
 		
 	//Setup message recieving (Blocking for life of connection)
 	t.recieveOnConn(c,conn)
+	
+	//Call disconnection method
+	if t.OnDisconnect != nil{
+		t.OnDisconnect(c.pendingAuth.authKey,c.pendingAuth.authExtra)
+	}
 	
 	//Unregister connection
 	delete(t.connections,c.id)

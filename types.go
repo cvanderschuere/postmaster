@@ -18,7 +18,7 @@ type ConnectionID string
 
 type Connection struct{
 	out chan string
-	pendingAuth *PendingAuth //Set in between authreq & auth
+	pendingAuth *PendingAuth //Set in between authreq & auth (values kept after sucessful auth for later use)
 	isAuth bool //Has this client been authenticated (only allow authreq/auth rpc call if not)
 	id ConnectionID //Used internally
 	
