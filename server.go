@@ -390,3 +390,32 @@ func (t *Server) RegisterUnauthRPC(uri string, f RPCHandler) {
 func (t *Server) UnregisterUnauthRPC(uri string) {
 	delete(t.unauthRPCHooks, uri)
 }
+
+//Publish event outside of normal client->client structure
+func (t *Server) PublishEvent(uri string,msg interface{}){
+	subscribers,_ := t.subscriptions.Find(uri) //Doesn't matter if no one listening on this instance; possibly on other instances
+	
+	event := &EventMsg{
+		TopicURI: uri,
+		Event: msg,
+	}
+	
+	//Format json and distribute
+	if jsonEvent, err := event.MarshalJSON(); err == nil{
+		//TODO Pass to other instances
+		
+		//Loop over all connections for subscription
+		for _,connID := range subscribers{
+			//Look up connection for this ID
+			if subConn,ok := t.connections[connID]; ok{
+				subConn.out <- string(jsonEvent)
+			}else if !ok{
+				//Remove subscription of dropped connection
+				t.subscriptions.Remove(uri,connID)
+			}
+		}
+	}else{
+		log.Error("postmaster: error creating event message(PublishEvent()): %s", err)
+		return
+	}
+}
