@@ -142,6 +142,7 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 			//Don't error on normal socket close
 			if err != io.EOF {
 				log.Error("postmaster: error receiving message, aborting connection: %s", err)
+				break Connection_Loop
 			}
 			break Connection_Loop
 		}
@@ -234,7 +235,7 @@ func (t *Server) handlePublish(conn *Connection, msg PublishMsg){
 		//Loop over all connections for subscription
 		for _,connID := range subscribers{
 			//Look up connection for this ID
-			if subConn,ok := t.connections[connID]; ok && connID != conn.id{
+			if subConn,ok := t.connections[connID]; ok && !(connID == conn.id && msg.ExcludeMe){
 				subConn.out <- string(jsonEvent)
 			}else if !ok{
 				//Remove subscription of dropped connection
