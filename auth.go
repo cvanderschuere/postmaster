@@ -9,6 +9,7 @@ import(
 	"crypto/sha256"
 	"crypto/hmac"
 	"encoding/json"
+	"strings"
 )
 
 //
@@ -97,7 +98,7 @@ func auth(t *Server, conn *Connection, signature string)(*Permissions,error){
 	
 	conn.isAuth = true
 	conn.P = &conn.pendingAuth.p //Set permissions
-	conn.Username = conn.pendingAuth.authKey
+	conn.Username = strings.ToLower(conn.pendingAuth.authKey) //FIXME probably best to do this outside of postmaster
 	
 	if t.OnAuthenticated != nil{
 		go t.OnAuthenticated(conn.Username, conn.pendingAuth.authExtra, *conn.P) //Signal to server that new conneciton made

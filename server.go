@@ -86,7 +86,8 @@ func (t *Server) HandleWebsocket(conn *websocket.Conn) {
 	t.recieveOnConn(c,conn)
 	
 	//Call disconnection method
-	if t.OnDisconnect != nil{
+	//FIXME Figure out why pendingAuth is nil sometimes
+	if t.OnDisconnect != nil && c.pendingAuth != nil{		
 		t.OnDisconnect(c.pendingAuth.authKey,c.pendingAuth.authExtra)
 	}
 	
