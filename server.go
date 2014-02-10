@@ -212,7 +212,7 @@ func (t *Server) handlePublish(conn *Connection, msg PublishMsg){
 	
 	//Make sure this connection can publish on this uri
 	if r := conn.P.PubSub[msg.TopicURI];r.CanPublish == false{
-		log.Error("postmaster: Connection tried to publish to incorrect uri")
+		log.Error("postmaster: Connection tried to publish to incorrect uri: ",msg.TopicURI)
 		return
 	}
 		
