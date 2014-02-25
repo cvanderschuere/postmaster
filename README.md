@@ -27,7 +27,7 @@ import (
 )
 
 func main(){
-    server L= postmaster.NewServer()
+    server := postmaster.NewServer()
 
 	//Assign auth callbacks
 	server.GetAuthSecret = lookupUser
