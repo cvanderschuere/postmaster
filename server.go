@@ -14,32 +14,32 @@ import(
 //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-//Represents data storage per instance 
+//Represents data storage per instance
 type Server struct{
 	localID string //TODO : Don't use this
-	
+
 	//Data storage
 	connections map[ConnectionID] *Connection // Channel to send on connection TODO Make safe for concurrent access (RWMutex)
 	subscriptions *subscriptionMap // Maps subscription URI to connectionID
 	rpcHooks map[string] RPCHandler
 	unauthRPCHooks map[string] RPCHandler
-	
+
 	//
 	//Challenge Response Authentication Callbacks
 	//
-	
+
 	//Get the authentication secret for an authentication key, i.e. the user password for the user name. Return "" when the authentication key does not exist.
 	GetAuthSecret	func(authKey string)(string,error) // Required
-	
+
     //Get the permissions the session is granted when the authentication succeeds for the given key / extra information.
 	GetAuthPermissions func(authKey string,authExtra map[string]interface{})(Permissions,error) // Required
-	
+
 	//Fired when client authentication was successful.
 	OnAuthenticated func(authKey string,authExtra map[string]interface{}, permission Permissions) // Optional
 
 	//Message interept
 	MessageToPublish PublishIntercept // Optional
-	
+
 	//Fired when authenticated client disconnections
 	OnDisconnect func(authKey string,authExtra map[string]interface{}) //Optional
 
@@ -52,7 +52,7 @@ func NewServer()*Server{
 		subscriptions: newSubscriptionMap(),
 		rpcHooks: make(map[string]RPCHandler),
 		unauthRPCHooks: make(map[string]RPCHandler),
-				
+
 		//Callbacks all nil (Note some are required)
 	}
 }
@@ -63,14 +63,14 @@ func NewServer()*Server{
 //	* 	Manage send/recieve for duration of connection
 func (t *Server) HandleWebsocket(conn *websocket.Conn) {
 	defer conn.Close() //Close connection at end of this function
-	
+
 	//Register Connection
 	c,err := t.registerConnection(conn)
 	if err != nil{
 		log.Error("postmaster: error registering connection: %s", err)
 		return
 	}
-		
+
 	//Setup goroutine to send all message on chan
 	go func() {
 		for msg := range c.out {
@@ -80,59 +80,59 @@ func (t *Server) HandleWebsocket(conn *websocket.Conn) {
 				log.Error("postmaster: error sending message: %s", err)
 			}
 		}
-	}()	
-		
+	}()
+
 	//Setup message recieving (Blocking for life of connection)
 	t.recieveOnConn(c,conn)
-	
+
 	//Call disconnection method
 	if t.OnDisconnect != nil{
 		t.OnDisconnect(c.pendingAuth.authKey,c.pendingAuth.authExtra)
 	}
-	
+
 	//Unregister connection
 	delete(t.connections,c.id)
 }
 
 //Returns registered id or error
-func (t *Server) registerConnection(conn *websocket.Conn)(*Connection,error){	
+func (t *Server) registerConnection(conn *websocket.Conn)(*Connection,error){
 	//Create uuid (randomly)
 	tid, err := uuid.NewV4()
 	if err != nil {
 		return nil,errors.New("error creating uuid:"+err.Error())
 	}
-	
+
 	cid := ConnectionID(tid.String())
-	
+
 	//Create Welcome
 	msg := WelcomeMsg{SessionId:string(cid)}
-	
+
 	arr, jsonErr := msg.MarshalJSON()
 	if jsonErr != nil {
 		return nil,errors.New("error encoding welcome message:"+jsonErr.Error())
 	}
-	
+
 	//Send welcome
 	log.Debug("sending welcome message: %s", arr)
-	
+
 	if err := websocket.Message.Send(conn, string(arr)); err != nil {
 		return nil,errors.New("error sending welcome message, aborting connection:"+ err.Error())
 	}
-	
+
 	//Create Connection
 	sendChan := make(chan string, ALLOWED_BACKLOG) //Channel to send to connection
-	
-	//Register channel with server	
+
+	//Register channel with server
 	newConn := &Connection{out:sendChan,id:cid,pendingAuth:nil,isAuth:false,Username:"",P:nil} //Un authed user
 	t.connections[cid] = newConn
-	
+
 	log.Info("client connected: %s", cid)
-	
+
 	return  newConn,nil //Sucessfully registered
 }
 
 //Recieves on channel for life of connection
-func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){	
+func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 	Connection_Loop:
 	for {
 		//Recieve message
@@ -147,7 +147,7 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 			break Connection_Loop
 		}
 		log.Trace("postmaster: message received: %s", rec)
-		
+
 		//Process message
 		data := []byte(rec)
 
@@ -161,7 +161,7 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 			}
 			t.handleCall(conn, msg)
 		case SUBSCRIBE:
-			if conn.isAuth{
+			//if conn.isAuth{
 				var msg SubscribeMsg
 				err := json.Unmarshal(data, &msg)
 				if err != nil {
@@ -169,7 +169,7 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 					continue Connection_Loop
 				}
 				t.handleSubscribe(conn, msg)
-			}
+			//}
 		case UNSUBSCRIBE:
 			if conn.isAuth{
 				var msg UnsubscribeMsg
@@ -195,7 +195,7 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 		default:
 			log.Error("postmaster: invalid message format, message dropped: %s", data)
 		}
-		
+
 	}
 }
 
@@ -207,31 +207,31 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 
 func (t *Server) handlePublish(conn *Connection, msg PublishMsg){
 	log.Trace("postmaster: handling publish message")
-	
-	
+
+
 	//Make sure this connection can publish on this uri
 	if r := conn.P.PubSub[msg.TopicURI];r.CanPublish == false{
 		log.Error("postmaster: Connection tried to publish to incorrect uri")
 		return
 	}
-		
+
 	subscribers,_ := t.subscriptions.Find(msg.TopicURI) //Doesn't matter if no one listening on this instance; possibly on other instances
-	
+
 	event := &EventMsg{
 		TopicURI: msg.TopicURI,
 		Event: msg.Event,
 	}
-	
+
 	//Give server option to intercept and/or kill event
 	if t.MessageToPublish != nil && !t.MessageToPublish(conn,msg){
 		log.Debug("postmaster: event vetoed by server: %s",msg.Event)
 		return
 	}
-	
+
 	//Format json and distribute
 	if jsonEvent, err := event.MarshalJSON(); err == nil{
 		//TODO Pass to other instances
-		
+
 		//Loop over all connections for subscription
 		for _,connID := range subscribers{
 			//Look up connection for this ID
@@ -253,9 +253,9 @@ func (t *Server) handlePublish(conn *Connection, msg PublishMsg){
 
 func (t *Server) handleCall(conn *Connection, msg CallMsg){
 	log.Trace("postmaster: handling call message")
-	
+
 	hookMap := t.rpcHooks
-	
+
 	//Make sure this is appropriate call (only authreq/auth when isAuth==false)
 	if !conn.isAuth {
 		switch msg.ProcURI{
@@ -272,7 +272,7 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 			}else{
 				authExtra = nil
 			}
-			
+
 			res,err := authRequest(t,conn,authKey,authExtra)
 			if err == nil{
 				callResult := &CallResultMsg{
@@ -300,7 +300,7 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 			return
 		default:
 			hookMap = t.unauthRPCHooks //Use unauthRPC hooks
-			
+
 		}
 	}
 
@@ -308,10 +308,10 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 
 	//Check if function exists
 	if f, ok := hookMap[msg.ProcURI]; ok && f != nil {
-		
+
 		// Perform function
 		res, err := f(conn, msg.ProcURI, msg.CallArgs...)
-	
+
 		if err == nil{
 			//Formulate response
 			callResult := &CallResultMsg{
@@ -319,7 +319,7 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 				Result: res,
 			}
 			out,_ = callResult.MarshalJSON()
-			
+
 		} else {
 			//Handle error
 			callError := &CallErrorMsg{
@@ -338,7 +338,7 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 			ErrorDesc: "RPC call '%s' not implemented",
 			ErrorDetails: msg.ProcURI,
 		}
-		out,_ = callError.MarshalJSON()		
+		out,_ = callError.MarshalJSON()
 	}
 
 	if returnConn, ok := t.connections[conn.id]; ok {
@@ -355,7 +355,7 @@ func (t *Server) handleSubscribe(conn *Connection, msg SubscribeMsg){
 		log.Error("postmaster: Connection tried to subscrive to incorrect uri")
 		return
 	}
-	
+
 	t.subscriptions.Add(msg.TopicURI,conn.id) //Add to subscriptions
 }
 
@@ -395,16 +395,16 @@ func (t *Server) UnregisterUnauthRPC(uri string) {
 //Publish event outside of normal client->client structure
 func (t *Server) PublishEvent(uri string,msg interface{}){
 	subscribers,_ := t.subscriptions.Find(uri) //Doesn't matter if no one listening on this instance; possibly on other instances
-	
+
 	event := &EventMsg{
 		TopicURI: uri,
 		Event: msg,
 	}
-	
+
 	//Format json and distribute
 	if jsonEvent, err := event.MarshalJSON(); err == nil{
 		//TODO Pass to other instances
-		
+
 		//Loop over all connections for subscription
 		for _,connID := range subscribers{
 			//Look up connection for this ID
