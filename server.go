@@ -161,26 +161,23 @@ func (t *Server) recieveOnConn(conn *Connection, ws *websocket.Conn){
 			}
 			t.handleCall(conn, msg)
 		case SUBSCRIBE:
-			//if conn.isAuth{
-				var msg SubscribeMsg
-				err := json.Unmarshal(data, &msg)
-				if err != nil {
-					log.Error("postmaster: error unmarshalling subscribe message: %s", err)
-					continue Connection_Loop
-				}
-				t.handleSubscribe(conn, msg)
-			//}
-		case UNSUBSCRIBE:
-			if conn.isAuth{
-				var msg UnsubscribeMsg
-				err := json.Unmarshal(data, &msg)
-				if err != nil {
-					log.Error("postmaster: error unmarshalling unsubscribe message: %s", err)
-					continue Connection_Loop
-				}
-				t.handleUnsubscribe(conn, msg)
+			var msg SubscribeMsg
+			err := json.Unmarshal(data, &msg)
+			if err != nil {
+				log.Error("postmaster: error unmarshalling subscribe message: %s", err)
+				continue Connection_Loop
 			}
+			t.handleSubscribe(conn, msg)
+		case UNSUBSCRIBE:
+			var msg UnsubscribeMsg
+			err := json.Unmarshal(data, &msg)
+			if err != nil {
+				log.Error("postmaster: error unmarshalling unsubscribe message: %s", err)
+				continue Connection_Loop
+			}
+			t.handleUnsubscribe(conn, msg)
 		case PUBLISH:
+			// Only can't publish unless authenticated
 			if conn.isAuth{
 				var msg PublishMsg
 				err := json.Unmarshal(data, &msg)
@@ -350,12 +347,6 @@ func (t *Server) handleCall(conn *Connection, msg CallMsg){
 ///////////////////////////////////////////////////////////////////////////////////////
 
 func (t *Server) handleSubscribe(conn *Connection, msg SubscribeMsg){
-	//Make sure this connection can publish on this uri
-	if r := conn.P.PubSub[msg.TopicURI];r.CanSubscribe == false{
-		log.Error("postmaster: Connection tried to subscrive to incorrect uri")
-		return
-	}
-
 	t.subscriptions.Add(msg.TopicURI,conn.id) //Add to subscriptions
 }
 
